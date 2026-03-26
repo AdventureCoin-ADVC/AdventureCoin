@@ -5,7 +5,7 @@
 ## Table of Contents
 
 - [1. How do I get Core Wallet?](#1-how-do-i-get-core-wallet)
-- [2. How do I mine on phone?](#2-how-do-i-mine-on-phone)
+- [2. How do I mine on Android?](#2-how-do-i-mine-on-phone)
 - [3. How do I mine on Android with SugarMaker via Termux (no proot)?](#3-how-do-i-mine-on-android-with-sugarmaker-via-termux-no-proot)
 
 ---
@@ -14,10 +14,21 @@
 
 ### Download
 
-| Platform | Link |
-|----------|------|
-| Windows  | [Download here](#) |
-| macOS    | [Download here](#) |
+👉 [Download the latest release](https://github.com/AdventureCoin-ADVC/AdventureCoin/releases/latest)
+ 
+Pick the file that matches your platform:
+ 
+| Platform | Architecture | File to download |
+|----------|-------------|-----------------|
+| Windows | 64-bit *(most modern PCs)* | `x86_64-win` |
+| Windows | 32-bit *(older PCs)* | `i686-win` |
+| macOS | Intel | `x86_64-macos` |
+| Linux | 64-bit | `x86_64-linux` |
+| Linux | 32-bit | `i686-linux` |
+| Linux ARM | 64-bit *(Raspberry Pi 4/5, ARM SBCs)* | `aarch64-linux` |
+| Linux ARM | 32-bit *(Raspberry Pi Zero 2, Pi 3)* | `armhf-linux` |
+ 
+> Not sure which Windows version you have? Press `Win + Pause/Break` or search *"About your PC"* — it will say 64-bit or 32-bit under **System type**.
 
 ### Setup
 
