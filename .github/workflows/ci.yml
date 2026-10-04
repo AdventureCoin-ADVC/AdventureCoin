@@ -160,8 +160,9 @@ jobs:
                procps bison python3 python3-pip python3-setuptools python3-wheel autoconf-archive
           ln -sf /usr/bin/python3 /usr/bin/python
           apt-get install -y ${{ matrix.packages }}
-          python3 -m pip install setuptools==70.3.0 --upgrade
-          python3 -m pip install lief
+          python3 -m ensurepip --upgrade || true
+          python3 -m pip install setuptools==70.3.0 --upgrade || true
+          python3 -m pip install lief || true
 
       - name: Post install
         if: ${{ matrix.postinstall }}
