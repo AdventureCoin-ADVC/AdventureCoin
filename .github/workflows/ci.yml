@@ -32,8 +32,10 @@ jobs:
         name:
           - aarch64-linux
           - armhf-linux
+          - armv7-linux
           - i686-linux
           - i686-win
+          - riscv64-linux
           - x86_64-linux
           - x86_64-macos
           - x86_64-win
@@ -58,6 +60,13 @@ jobs:
             dep-opts: "NO_QT=1"
             config-opts: "--enable-glibc-back-compat LDFLAGS=-static-libstdc++ --disable-tests"
             goal: install
+          - name: armv7-linux
+            host: arm-linux-gnueabihf
+            container: ubuntu:20.04
+            packages: g++-arm-linux-gnueabihf qemu-user-static qemu-user
+            dep-opts: ""
+            config-opts: "--disable-tests --without-gui"
+            goal: install
           - name: aarch64-linux
             host: aarch64-linux-gnu
             container: ubuntu:20.04
@@ -77,6 +86,13 @@ jobs:
             check-symbols: false
             dep-opts: "NO_QT=1"
             config-opts: "--enable-zmq --enable-glibc-back-compat LDFLAGS=-static-libstdc++ --disable-tests"
+            goal: install
+          - name: riscv64-linux
+            host: riscv64-linux-gnu
+            container: ubuntu:20.04
+            packages: g++-riscv64-linux-gnu qemu-user-static qemu-user
+            dep-opts: "NO_QT=1"
+            config-opts: "--disable-tests"
             goal: install
           - name: i686-win
             host: i686-w64-mingw32
@@ -124,8 +140,15 @@ jobs:
             dep-opts: ""
             config-opts: "--with-gui=qt5 --disable-tests"
             goal: deploy
+
             sdk: 10.11
+            sdk-url: "https://depends.dogecoincore.org"
+            sdk-filename: "MacOSX10.11.sdk.tar.gz"
             sdk-shasum: "bec9d089ebf2e2dd59b1a811a38ec78ebd5da18cbbcd6ab39d1e59f64ac5033f"
+
+            sdk-fallback-url: "https://github.com/phracker/MacOSX-SDKs/releases/download/11.3"
+            sdk-fallback-filename: "MacOSX10.11.sdk.tar.xz"
+            sdk-fallback-shasum: "d080fc672d94f95eb54651c37ede80f61761ce4c91f87061e11a20222c8d00c8"
 
     runs-on: ubuntu-22.04
     container:
@@ -152,8 +175,9 @@ jobs:
                procps bison python3 python3-pip python3-setuptools python3-wheel autoconf-archive
           ln -sf /usr/bin/python3 /usr/bin/python
           apt-get install -y ${{ matrix.packages }}
-          python3 -m pip install setuptools==70.3.0 --upgrade
-          python3 -m pip install lief
+          python3 -m ensurepip --upgrade || true
+          python3 -m pip install setuptools==70.3.0 --upgrade || true
+          python3 -m pip install lief || true
 
       - name: Post install
         if: ${{ matrix.postinstall }}
@@ -181,24 +205,152 @@ jobs:
 
       - name: Install SDK
         if: ${{ matrix.sdk }}
-        env:
-          sdk-filename: MacOSX${{ matrix.sdk }}.sdk.tar.gz
+        shell: bash
         run: |
+          set -e
+
           mkdir -p depends/sdk-sources
           mkdir -p depends/SDKs
 
           cd depends/sdk-sources
 
-          # First check: does NOT include path
-          echo "${{ matrix.sdk-shasum }}  ${{ env.sdk-filename }}" | sha256sum -c || \
-          curl --location --fail "$SDK_URL/${{ env.sdk-filename }}" -o "${{ env.sdk-filename }}"
+          PRIMARY_FILE="${{ matrix.sdk-filename }}"
+          PRIMARY_URL="${{ matrix.sdk-url }}/${{ matrix.sdk-filename }}"
+          PRIMARY_SHA="${{ matrix.sdk-shasum }}"
 
-          # Second check AFTER download
-          echo "${{ matrix.sdk-shasum }}  ${{ env.sdk-filename }}" | sha256sum -c
+          FALLBACK_FILE="${{ matrix.sdk-fallback-filename }}"
+          FALLBACK_URL="${{ matrix.sdk-fallback-url }}/${{ matrix.sdk-fallback-filename }}"
+          FALLBACK_SHA="${{ matrix.sdk-fallback-shasum }}"
+
+          echo "============================================================"
+          echo "Installing SDK for ${{ matrix.name }}"
+          echo "============================================================"
+
+          verify_sha256() {
+            local file="$1"
+            local expected
+            expected="$(echo "$2" | tr 'A-F' 'a-f')"
+
+            if [[ ! -f "$file" ]]; then
+              return 1
+            fi
+
+            local actual
+            if command -v sha256sum >/dev/null 2>&1; then
+              actual="$(sha256sum "$file" | awk '{print $1}')"
+            else
+              actual="$(shasum -a 256 "$file" | awk '{print $1}')"
+            fi
+
+            if [[ "$actual" == "$expected" ]]; then
+              return 0
+            fi
+
+            echo "  checksum mismatch for $file"
+            echo "    expected: $expected"
+            echo "    actual:   $actual"
+            return 1
+          }
+
+          download_file() {
+            local url="$1"
+            local file="$2"
+
+            echo "Downloading:"
+            echo "  $url"
+            echo "  -> $file"
+
+            curl \
+              --location \
+              --fail \
+              --show-error \
+              --silent \
+              --retry 3 \
+              --retry-delay 2 \
+              "$url" \
+              -o "$file"
+          }
+
+          echo ""
+          echo "------------------------------------------------------------"
+          echo "Attempting PRIMARY SDK"
+          echo "------------------------------------------------------------"
+          echo "URL: $PRIMARY_URL"
+          echo "SHA256: $PRIMARY_SHA"
+
+          PRIMARY_OK=false
+
+          if verify_sha256 "$PRIMARY_FILE" "$PRIMARY_SHA"; then
+            echo "Primary SDK already exists and checksum is valid."
+            PRIMARY_OK=true
+          else
+            echo "Primary SDK is missing or checksum is invalid."
+            rm -f "$PRIMARY_FILE"
+
+            if download_file "$PRIMARY_URL" "$PRIMARY_FILE"; then
+              if verify_sha256 "$PRIMARY_FILE" "$PRIMARY_SHA"; then
+                echo "Primary SDK downloaded and checksum verified."
+                PRIMARY_OK=true
+              else
+                echo "Primary SDK downloaded but checksum verification FAILED."
+                rm -f "$PRIMARY_FILE"
+              fi
+            else
+              echo "Primary SDK download FAILED."
+            fi
+          fi
+
+          if [[ "$PRIMARY_OK" != "true" ]]; then
+            echo ""
+            echo "============================================================"
+            echo "PRIMARY SDK UNAVAILABLE"
+            echo "Switching to FALLBACK SDK"
+            echo "============================================================"
+            echo "URL: $FALLBACK_URL"
+            echo "SHA256: $FALLBACK_SHA"
+
+            if [[ -z "$FALLBACK_FILE" || -z "$FALLBACK_URL" || -z "$FALLBACK_SHA" ]]; then
+              echo "ERROR: No fallback SDK is configured for this build."
+              exit 1
+            fi
+
+            if verify_sha256 "$FALLBACK_FILE" "$FALLBACK_SHA"; then
+              echo "Fallback SDK already exists and checksum is valid."
+            else
+              echo "Fallback SDK is missing or checksum is invalid."
+              rm -f "$FALLBACK_FILE"
+
+              if ! download_file "$FALLBACK_URL" "$FALLBACK_FILE"; then
+                echo "ERROR: Fallback SDK download FAILED."
+                exit 1
+              fi
+
+              if ! verify_sha256 "$FALLBACK_FILE" "$FALLBACK_SHA"; then
+                echo "ERROR: Fallback SDK checksum verification FAILED."
+                exit 1
+              fi
+
+              echo "Fallback SDK downloaded and checksum verified."
+            fi
+
+            SDK_FILE="$FALLBACK_FILE"
+          else
+            SDK_FILE="$PRIMARY_FILE"
+          fi
+
+          echo ""
+          echo "============================================================"
+          echo "SDK selected:"
+          echo "$SDK_FILE"
+          echo "============================================================"
 
           cd ../..
 
-          tar -C depends/SDKs -xf depends/sdk-sources/${{ env.sdk-filename }}
+          rm -rf depends/SDKs/*
+          tar -C depends/SDKs -xf "depends/sdk-sources/$SDK_FILE"
+
+          echo ""
+          echo "SDK extraction complete."
 
       - name: Dependency cache
         uses: actions/cache@v4
